@@ -6,6 +6,14 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install and Sync Capacitor
+        run: |
+          npm install
+          npx cap add ios
+          npx cap sync ios
       - name: Build iOS App
         run: |
           cd ios/App
@@ -18,5 +26,6 @@ jobs:
         with:
           name: NightShift-IPA
           path: ios/App/NightShift.ipa
+
 
 
