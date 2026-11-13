@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ночная смена</title>
+<meta name="theme-color" content="#4a3426">
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#4a3426;--paper:#f1e6b8;--ink:#2b2a26;--red:#b3261e;--shade:#d9cc99;color-scheme:light dark}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1c1411}}
+:root[data-theme="dark"]{--bg:#1c1411}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none;touch-action:manipulation}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font-family:Caveat,"Comic Sans MS",cursive;font-size:20px;padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px)}
+#app{height:100%;max-width:640px;margin:0 auto;display:flex;flex-direction:column;gap:8px;padding:8px}
+#top{display:flex;justify-content:space-between;align-items:baseline;color:var(--paper);font-size:26px;font-weight:700}
+#stage{width:min(100%,62vh);aspect-ratio:4/3;margin:0 auto;border:3px solid var(--ink);background:var(--paper);overflow:hidden}
+canvas{width:100%;height:100%;display:block}
+#hint{min-height:2.4em;color:var(--paper);text-align:center;font-size:22px;line-height:1.1}
+#cams{display:flex;gap:8px}#cams[hidden]{display:none}
+#ctrl{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+button{font:inherit;font-weight:700;font-size:24px;padding:12px 8px;background:var(--paper);color:var(--ink);border:3px solid var(--ink);border-radius:6px;flex:1}
+button:active,button.on{background:var(--shade);transform:translateY(1px)}
+button:focus-visible{outline:3px solid var(--red);outline-offset:2px}
+.ov{position:fixed;inset:0;background:rgba(20,14,10,.9);display:flex;align-items:center;justify-content:center;padding:16px;z-index:5}
+.ov[hidden]{display:none}
+.note{background:var(--paper);border:3px solid var(--ink);padding:16px 20px;max-width:460px;max-height:100%;overflow:auto;font-size:22px;line-height:1.15}
+.note h1{margin:0 0 8px;font-size:38px}.note p{margin:6px 0}
+.note label{display:block;margin:10px 0}
+.note button{width:100%;margin-top:6px}
+</style></head><body>
+<div id="app">
+ <div id="top"><span id="time">12:00 AM</span><span>Ночная смена</span></div>
+ <div id="stage"><canvas id="cv"></canvas></div>
+ <div id="hint"></div>
+ <div id="cams" hidden><button>КАМ 1</button><button>КАМ 2</button><button>КАМ 3</button><button>КАМ 4</button></div>
+ <div id="ctrl">
+  <button id="bcam">Камеры</button><button id="bwar">Шкаф</button>
+  <button id="blook">Смотреть (держи)</button><button id="bbox">Коробка</button>
+ </div>
+</div>
+<div class="ov" id="start"><div class="note">
+ <h1>Ночная смена</h1>
+ <p><b>ТВ-Мэн</b>: увидел на камере — он поплывёт в офис. Не отводи взгляд: держи «Смотреть», когда он рядом.</p>
+ <p><b>Глаз 3000</b>: увидел на камере — не переключай камеру, пока он не уйдёт.</p>
+ <p><b>Тень</b>: появилась в офисе — стучи по шкафу ×3.</p>
+ <p><b>Скакалочник</b>: выключи камеры и спрячься в коробку за 5 секунд.</p>
+ <p>Ночь: с 12:00 AM до 6:00 AM, 20 минут.</p>
+ <label><input type="checkbox" id="fast"> Быстрая ночь (3 минуты)</label>
+ <button id="go">Начать смену</button>
+</div></div>
+<div class="ov" id="end" hidden><div class="note"><h1 id="et"></h1><p id="ep"></p><button id="again">Ещё раз</button></div></div>
+<script>
+const $=i=>document.getElementById(i),cv=$('cv'),x=cv.getContext('2d');
+const W=400,H=300,NAMES={tv:'ТВ-Мэн',eye:'Глаз 3000',shadow:'Тень',jump:'Скакалочник'};
+let G=null,hold=false,tick=0,last=0,ac;
+function fit(){const r=cv.getBoundingClientRect(),d=devicePixelRatio||1;cv.width=r.width*d;cv.height=r.height*d;x.setTransform(cv.width/W,0,0,cv.height/H,0,0)}
+addEventListener('resize',fit);
+function beep(f,d=.15){try{ac=ac||new AudioContext();const o=ac.createOscillator(),g=ac.createGain();o.type='square';o.frequency.value=f;g.gain.value=.05;o.connect(g);g.connect(ac.destination);o.start();o.stop(ac.currentTime+d)}catch(e){}}
+/* pencil drawing helpers */
+const jt=(a,b)=>Math.sin(a*12.9898+b*78.233+tick*3.7);
+function L(p,w=2,c='#2b2a26'){x.strokeStyle=c;x.lineWidth=w;x.lineCap=x.lineJoin='round';x.beginPath();p.forEach((q,i)=>{const X=q[0]+jt(q[0],q[1]),Y=q[1]+jt(q[1],q[0]);i?x.lineTo(X,Y):x.moveTo(X,Y)});x.stroke()}
+function R(a,b,w,h,lw=2,c){L([[a,b],[a+w,b],[a+w,b+h],[a,b+h],[a,b]],lw,c)}
+function O(a,b,r,fill,lw=2,c){const p=[];for(let i=0;i<=16;i++){const t=i/16*6.283;p.push([a+Math.cos(t)*r,b+Math.sin(t)*r])}
+ if(fill){x.fillStyle=fill;x.beginPath();p.forEach((q,i)=>i?x.lineTo(q[0],q[1]):x.moveTo(q[0],q[1]));x.fill()}L(p,lw,c)}
+function T(s,a,b,sz=16,c='#2b2a26'){x.fillStyle=c;x.font='700 '+sz+'px Caveat,"Comic Sans MS",cursive';x.fillText(s,a,b)}
+const F={
+ tv(a,b,s){R(a-18*s,b-92*s,36*s,22*s);L([[a,b-92*s],[a-6*s,b-102*s]]);L([[a,b-92*s],[a+8*s,b-100*s]]);
+  for(let i=0;i<4;i++)O(a-11*s+i*7.5*s,b-81*s,2.5*s);
+  L([[a,b-70*s],[a,b-36*s]]);L([[a,b-62*s],[a-14*s,b-44*s]]);L([[a,b-62*s],[a+14*s,b-44*s]]);
+  L([[a,b-36*s],[a-10*s,b]]);L([[a,b-36*s],[a+10*s,b]])},
+ eye(a,b,s){O(a,b-84*s,26*s,'#3a3833');O(a+4*s,b-92*s,8*s,'#f1e6b8');O(a+5*s,b-92*s,3*s,'#2b2a26',1);
+  L([[a-14*s,b-76*s],[a+14*s,b-76*s]],3,'#f1e6b8');
+  for(const d of[-1,1]){L([[a+d*10*s,b-58*s],[a+d*18*s,b-30*s],[a+d*14*s,b]],7);L([[a+d*22*s,b-66*s],[a+d*40*s,b-38*s]],6)}},
+ shadow(a,b,s){O(a,b-54*s,7*s,'#8c8873');L([[a,b-47*s],[a,b-24*s]],2,'#555');L([[a,b-42*s],[a-9*s,b-26*s]],2,'#555');
+  L([[a,b-42*s],[a+9*s,b-26*s]],2,'#555');L([[a,b-24*s],[a-7*s,b]],2,'#555');L([[a,b-24*s],[a+7*s,b]],2,'#555')},
+ jump(a,b,s){O(a,b-120*s,10*s,'#1b1a17');L([[a,b-110*s],[a,b-50*s]],5);L([[a,b-100*s],[a-16*s,b-62*s]],4);
+  L([[a,b-100*s],[a+16*s,b-62*s]],4);R(a-52*s,b-68*s,36*s,14*s,2);L([[a,b-50*s],[a-12*s,b]],4);L([[a,b-50*s],[a+12*s,b]],4)}};
+/* scenes */
+function office(){
+ x.fillStyle='#f1e6b8';x.fillRect(0,0,W,H);
+ L([[0,240],[W,240]]);R(150,196,110,36);R(172,170,54,26);L([[199,196],[199,206]]);O(199,183,4);
+ R(300,50,80,190);L([[340,50],[340,240]],1.5);for(let i=1;i<4;i++)L([[300,50+i*47],[380,50+i*47]],1.5);
+ R(18,60,70,180);O(76,150,3);T('шкаф',320,40);T('дверь',34,50);T('стол',190,260);
+ const th=G.th;
+ if(th&&th.ph==='office'&&th.type==='tv')F.tv(210,240,1.6);
+ if(th&&th.type==='shadow')F.shadow(120,240,1.8);
+ if(th&&th.type==='jump'&&th.ph==='hide')F.jump(50,245,1.1);
+ if(G.hide){x.fillStyle='#c9a86a';x.fillRect(110,110,180,140);R(110,110,180,140,3);L([[110,150],[290,150]],2);T('коробка… тише',150,200,24)}}
+const CN=['','Склад','Коридор','Подсобка','Вход'],POS=[0,[110,270],[200,275],[290,270],[200,255]];
+function cam(c){
+ x.fillStyle='#cdbf86';x.fillRect(0,0,W,H);
+ if(c===1){for(let r=0;r<3;r++){R(30,50+r*70,160,8);for(let i=0;i<6;i++)R(36+i*26,24+r*70,20,26,1.5)}R(250,60,110,170)}
+ if(c===2){L([[0,0],[140,90],[140,210],[0,300]]);L([[400,0],[260,90],[260,210],[400,300]]);R(140,90,120,120)}
+ if(c===3){for(let i=0;i<5;i++)R(30+i*70,120+(i%2)*50,56,56);R(120,40,150,30)}
+ if(c===4){R(150,40,100,200);O(236,140,4);L([[90,150],[130,150]],3);L([[110,140],[130,150],[110,160]],3);T('выход',180,30,20)}
+ L([[0,262],[W,262]],1.5);
+ const th=G.th;if(th&&th.ph==='cam'&&th.c===c)F[th.type](POS[c][0],POS[c][1],1.5);
+ x.fillStyle='rgba(0,0,0,.06)';for(let y=0;y<H;y+=6)x.fillRect(0,y,W,2);
+ for(let i=0;i<4;i++){x.fillStyle='rgba(0,0,0,.12)';x.fillRect(Math.random()*W,Math.random()*H,Math.random()*60,1)}
+ T('КАМ '+c+' · '+CN[c],12,24,22);if(Math.floor(tick/3)%2)O(380,18,5,'#b3261e',1)}
+function scare(){
+ const t=G.dead;x.fillStyle='#7a1510';x.fillRect(0,0,W,H);
+ x.save();x.translate((Math.random()-.5)*12,(Math.random()-.5)*12);
+ F[t](200,330,t==='eye'?3.2:2.8);x.restore();T(NAMES[t]+' поймал тебя',90,40,34,'#f1e6b8')}
+/* game */
+const hour=()=>Math.floor(G.t/G.len*6);
+const gap=()=>Math.max(5,(14-hour()*1.5+Math.random()*8)*(G.fast?.35:1));
+function startGame(){G={fast:$('fast').checked,t:0,cam:0,th:null,hide:false,taps:0,dead:null,over:false,msg:'',msgT:0};
+ G.len=G.fast?180:1200;G.sp=gap()+2;$('start').hidden=true;$('end').hidden=true;beep(440)}
+function spawn(){const h=hour(),pool=['tv','eye'];if(h>=1)pool.push('shadow');if(h>=2)pool.push('jump');
+ const type=pool[Math.random()*pool.length|0],c=1+Math.random()*4|0;
+ G.th={type,c,ph:type==='shadow'?'office':'cam',t:0,seen:0,prog:0,lim:type==='eye'?14:8};
+ if(type==='shadow'){G.th.lim=7;G.taps=0;beep(300,.3)}}
+function clr(m){G.th=null;G.hide=false;G.taps=0;G.sp=gap();G.msg=m;G.msgT=2.5;beep(660,.1)}
+function die(t){G.dead=t;G.over=true;beep(90,.6);$('et').textContent='Смена провалена';$('ep').textContent=NAMES[t]+' поймал тебя в '+timeStr()+'.';setTimeout(()=>{$('end').hidden=false},1400)}
+function win(){G.over=true;$('et').textContent='6:00 AM — ты выжил!';$('ep').textContent='Смена закончена. Можно идти домой.';$('end').hidden=false;beep(880,.5)}
+function upd(dt){const th=G.th;th.t+=dt;const v=G.cam===th.c;
+ if(th.type==='tv'){
+  if(th.ph==='cam'){if(v)th.seen+=dt;if(th.seen>=1.5||th.t>=th.lim){th.ph='office';th.lim=th.seen>=1.5?8:4;th.t=0;th.prog=0;beep(200,.3)}}
+  else{if(hold&&!G.cam)th.prog+=dt;else th.prog=Math.max(0,th.prog-dt*.5);
+   if(th.prog>=3)clr('ТВ-Мэн ушёл');else if(th.t>=th.lim)die('tv')}}
+ else if(th.type==='eye'){if(v)th.prog+=dt;else th.prog=0;
+  if(th.prog>=5)clr('Глаз 3000 ушёл');else if(th.t>=th.lim)die('eye')}
+ else if(th.type==='shadow'){if(G.taps>=3)clr('Тень ушла');else if(th.t>=th.lim)die('shadow')}
+ else if(th.type==='jump'){
+  if(th.ph==='cam'){if(v)th.seen+=dt;if(th.seen>=1||th.t>=th.lim){th.ph='hide';th.lim=th.seen>=1?5:2.5;th.t=0;beep(250,.4)}}
+  else if(th.t>=th.lim){G.hide?clr('Скакалочник прошёл мимо'):die('jump')}}}
+function step(dt){G.t+=dt;if(G.msgT>0)G.msgT-=dt;if(G.t>=G.len){win();return}
+ if(!G.th){G.sp-=dt;if(G.sp<=0)spawn()}else upd(dt)}
+function timeStr(){const m=G.t/G.len*360,h=Math.floor(m/60);return(h===0?12:h)+':'+String(Math.floor(m%60/10)*10).padStart(2,'0')+' AM'}
+function hint(){const th=G.th;if(!th)return G.cam?'Камера: пока тихо…':'Тихо… Проверяй камеры.';
+ const v=G.cam===th.c;
+ if(th.type==='shadow')return'Тень в офисе! Стучи по шкафу ×3 ('+G.taps+'/3)';
+ if(th.type==='tv')return th.ph==='cam'?(v?'ТВ-Мэн на камере — он плывёт в офис!':'Тихо… Проверяй камеры.'):'ТВ-Мэн в офисе! Закрой камеры и держи «Смотреть» ('+th.prog.toFixed(1)+'/3)';
+ if(th.type==='eye')return v?'Глаз 3000! Не переключай камеру ('+th.prog.toFixed(1)+'/5)':'Тихо… Проверяй камеры.';
+ return th.ph==='cam'?(v?'Скакалочник на камере…':'Тихо… Проверяй камеры.'):(G.hide?'Тссс… сиди в коробке':'СКАКАЛОЧНИК! Выключи камеры и прячься в коробку: '+Math.ceil(th.lim-th.t))}
+function hud(){if(!G)return;$('time').textContent=timeStr();$('hint').textContent=G.msgT>0?G.msg:hint();
+ $('cams').hidden=!G.cam;[...$('cams').children].forEach((b,i)=>b.classList.toggle('on',G.cam===i+1));$('bcam').classList.toggle('on',!!G.cam)}
+function loop(ts){tick=Math.floor(ts/180);const dt=Math.min(.1,(ts-last)/1000);last=ts;
+ if(G){if(!G.over)step(dt);x.clearRect(0,0,W,H);if(G.dead)scare();else if(G.cam)cam(G.cam);else office();hud()}
+ requestAnimationFrame(loop)}
+/* controls */
+const ok=()=>G&&!G.over;
+$('bcam').onclick=()=>{if(ok()&&!G.hide){G.cam=G.cam?0:1;beep(520,.05)}};
+[...$('cams').children].forEach((b,i)=>b.onclick=()=>{if(ok()){G.cam=i+1;beep(520,.05)}});
+$('bwar').onclick=()=>{if(ok()&&!G.cam&&G.th&&G.th.type==='shadow'){G.taps++;beep(180,.05)}};
+$('bbox').onclick=()=>{if(!ok())return;const th=G.th;
+ if(th&&th.type==='jump'&&th.ph==='hide'){G.hide=true;G.cam=0}else{G.msg='Прятаться рано!';G.msgT=1.5}};
+const hl=v=>e=>{e.preventDefault();hold=v;$('blook').classList.toggle('on',v)};
+$('blook').addEventListener('pointerdown',hl(true));
+['pointerup','pointerleave','pointercancel'].forEach(n=>$('blook').addEventListener(n,hl(false)));
+$('blook').addEventListener('contextmenu',e=>e.preventDefault());
+$('go').onclick=startGame;$('again').onclick=startGame;
+fit();requestAnimationFrame(ts=>{last=ts;loop(ts)});
+</script></body></html>
